@@ -97,7 +97,6 @@ function defineExtenders(prototype, key, extendersOrFactory) {
  */
 function defineObservableProperty(instance, key, value, deep) {
     var observable$$1 = applyExtenders(instance, key, ko.observable());
-    var setter = observable$$1;
     if (deep) {
         setter = function (newValue) {
             observable$$1(prepareDeepValue(newValue));
@@ -109,6 +108,16 @@ function defineObservableProperty(instance, key, value, deep) {
         set: setter,
     });
     setter(value);
+    function setter(newValue) {
+        if(ko.isObservable(newValue)) {
+            newValue.subscribe(function(value) {
+                setter(value());
+            });
+            newValue = newValue();
+        }
+
+        observable$$1(newValue);
+    }
 }
 function prepareDeepValue(value) {
     if (typeof value === "object") {
@@ -183,6 +192,14 @@ function defineObservableArray(instance, key, value, deep) {
                     });
                 }
             }
+
+            if(ko.isObservableArray(newValue)) {
+                newValue.subscribe(function(value) {
+                    setter(value());
+                });
+                newValue = newValue();
+            }
+
             if (isArray(newValue)) {
                 // if new value array methods were already connected with another @observable
                 if (hasOwnProperty(newValue, PATCHED_KEY)) {
