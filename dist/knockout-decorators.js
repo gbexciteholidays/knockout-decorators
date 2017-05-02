@@ -36,7 +36,7 @@ var getPrototypeOf = Object.getPrototypeOf.bind(Object);
 var getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor.bind(Object);
 var hasOwnProperty = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
 var arraySlice = Function.prototype.call.bind(ArrayPrototype.slice);
-
+var instances = {};
 /**
  * Copyright (c) 2016-2017 Dmitry Panyushkin
  * Available under MIT license
@@ -72,6 +72,10 @@ function applyExtenders(instance, key, target) {
             target = target.extend(koExtender);
         });
     }
+    //add reference to instances
+    instances[key] = instances[key] || {};
+    instances[key][instance.constructor.name] = instance;
+    //
     return target;
 }
 function defineExtenders(prototype, key, extendersOrFactory) {
@@ -109,14 +113,19 @@ function defineObservableProperty(instance, key, value, deep) {
     });
     setter(value);
     function setter(newValue) {
+        var lastValue = observable$$1.peek();
+        // if we got new value
         if(ko.isObservable(newValue)) {
-            newValue.subscribe(function(value) {
-                setter(value());
-            });
             newValue = newValue();
         }
-
         observable$$1(newValue);
+        if (lastValue !== newValue) {
+            objectForEach(instances[key], function(name, instanceGrouped) {
+                if (instanceGrouped[key] !== newValue) {
+                    instanceGrouped[key] = newValue;
+                }
+            });
+        }
     }
 }
 function prepareDeepValue(value) {
@@ -193,13 +202,6 @@ function defineObservableArray(instance, key, value, deep) {
                 }
             }
 
-            if(ko.isObservableArray(newValue)) {
-                newValue.subscribe(function(value) {
-                    setter(value());
-                });
-                newValue = newValue();
-            }
-
             if (isArray(newValue)) {
                 // if new value array methods were already connected with another @observable
                 if (hasOwnProperty(newValue, PATCHED_KEY)) {
@@ -225,6 +227,14 @@ function defineObservableArray(instance, key, value, deep) {
         insideObsArray = true;
         obsArray(newValue);
         insideObsArray = false;
+
+        if (lastValue !== newValue) {
+            objectForEach(instances[key], function(name, instanceGrouped) {
+                if (instanceGrouped[key] !== newValue) {
+                    instanceGrouped[key] = newValue;
+                }
+            });
+        }
     }
     function patchArrayMethods(array) {
         var arrayMethods = deep ? deepArrayMethods : allArrayMethods;
@@ -650,3 +660,4 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
 //# sourceMappingURL=knockout-decorators.js.map
+
