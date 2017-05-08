@@ -36,7 +36,7 @@ var getPrototypeOf = Object.getPrototypeOf.bind(Object);
 var getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor.bind(Object);
 var hasOwnProperty = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
 var arraySlice = Function.prototype.call.bind(ArrayPrototype.slice);
-var instances = {};
+
 /**
  * Copyright (c) 2016-2017 Dmitry Panyushkin
  * Available under MIT license
@@ -72,10 +72,6 @@ function applyExtenders(instance, key, target) {
             target = target.extend(koExtender);
         });
     }
-    //add reference to instances
-    instances[key] = instances[key] || {};
-    instances[key][instance.constructor.name] = instance;
-    //
     return target;
 }
 function defineExtenders(prototype, key, extendersOrFactory) {
@@ -99,8 +95,9 @@ function defineExtenders(prototype, key, extendersOrFactory) {
  * Copyright (c) 2016-2017 Dmitry Panyushkin
  * Available under MIT license
  */
-function defineObservableProperty(instance, key, value, deep) {
-    var observable$$1 = applyExtenders(instance, key, ko.observable());
+function defineObservableProperty(instance, key, value, deep, observable) {
+    var observable = observable || ko.observable();
+    var observable$$1 = applyExtenders(instance, key, observable);
     if (deep) {
         setter = function (newValue) {
             observable$$1(prepareDeepValue(newValue));
@@ -113,18 +110,11 @@ function defineObservableProperty(instance, key, value, deep) {
     });
     setter(value);
     function setter(newValue) {
-        var lastValue = observable$$1.peek();
         // if we got new value
         if(ko.isObservable(newValue)) {
-            newValue = newValue();
-        }
-        observable$$1(newValue);
-        if (lastValue !== newValue) {
-            objectForEach(instances[key], function(name, instanceGrouped) {
-                if (instanceGrouped[key] !== newValue) {
-                    instanceGrouped[key] = newValue;
-                }
-            });
+            defineObservableProperty(instance, key, newValue.peek(), deep, newValue);
+        } else if(!ko.isComputed(observable$$1)) {
+            observable$$1(newValue);
         }
     }
 }
@@ -178,8 +168,9 @@ var allArrayMethods = deepArrayMethods.concat(["push", "splice", "unshift"]);
 var deepObservableArrayMethods = ["remove", "removeAll", "destroy", "destroyAll", "replace", "subscribe"];
 var allObservableArrayMethods = deepObservableArrayMethods.concat(["replace"]);
 var allMethods = allArrayMethods.concat(allObservableArrayMethods, ["mutate", "set"]);
-function defineObservableArray(instance, key, value, deep) {
-    var obsArray = applyExtenders(instance, key, ko.observableArray());
+function defineObservableArray(instance, key, value, deep, observableArray) {
+    var observableArray = observableArray || ko.observableArray();
+    var obsArray = applyExtenders(instance, key, observableArray);
     var insideObsArray = false;
     defineProperty(instance, key, {
         enumerable: true,
@@ -188,52 +179,48 @@ function defineObservableArray(instance, key, value, deep) {
     });
     setter(value);
     function setter(newValue) {
-        var lastValue = obsArray.peek();
         // if we got new value
-        if (lastValue !== newValue) {
-            if (isArray(lastValue)) {
-                // if lastValue array methods were already patched
-                if (hasOwnProperty(lastValue, PATCHED_KEY)) {
-                    delete lastValue[PATCHED_KEY];
-                    // clear patched array methods on lastValue (see unit tests)
-                    allMethods.forEach(function (fnName) {
-                        delete lastValue[fnName];
-                    });
-                }
-            }
-
-            if (isArray(newValue)) {
-                // if new value array methods were already connected with another @observable
-                if (hasOwnProperty(newValue, PATCHED_KEY)) {
-                    // clone new value to prevent corruption of another @observable (see unit tests)
-                    newValue = newValue.slice();
-                }
-                // if deep option is set
-                if (deep) {
-                    // make all array items deep observable
-                    for (var i = 0; i < newValue.length; ++i) {
-                        newValue[i] = prepareDeepValue(newValue[i]);
+        if(ko.isObservable(newValue)) {
+            defineObservableArray(instance, key, newValue.peek(), deep, newValue);
+        } else if(!ko.isComputed(obsArray)) {
+            var lastValue = obsArray.peek();
+            // if we got new value
+            if (lastValue !== newValue) {
+                if (isArray(lastValue)) {
+                    // if lastValue array methods were already patched
+                    if (hasOwnProperty(lastValue, PATCHED_KEY)) {
+                        delete lastValue[PATCHED_KEY];
+                        // clear patched array methods on lastValue (see unit tests)
+                        allMethods.forEach(function (fnName) {
+                            delete lastValue[fnName];
+                        });
                     }
                 }
-                // mark instance as ObservableArray
-                defineProperty(newValue, PATCHED_KEY, {
-                    value: true,
-                });
-                // call ko.observableArray.fn[fnName] instead of Array.prototype[fnName]
-                patchArrayMethods(newValue);
-            }
-        }
-        // update obsArray contents
-        insideObsArray = true;
-        obsArray(newValue);
-        insideObsArray = false;
-
-        if (lastValue !== newValue) {
-            objectForEach(instances[key], function(name, instanceGrouped) {
-                if (instanceGrouped[key] !== newValue) {
-                    instanceGrouped[key] = newValue;
+                if (isArray(newValue)) {
+                    // if new value array methods were already connected with another @observable
+                    if (hasOwnProperty(newValue, PATCHED_KEY)) {
+                        // clone new value to prevent corruption of another @observable (see unit tests)
+                        newValue = newValue.slice();
+                    }
+                    // if deep option is set
+                    if (deep) {
+                        // make all array items deep observable
+                        for (var i = 0; i < newValue.length; ++i) {
+                            newValue[i] = prepareDeepValue(newValue[i]);
+                        }
+                    }
+                    // mark instance as ObservableArray
+                    defineProperty(newValue, PATCHED_KEY, {
+                        value: true,
+                    });
+                    // call ko.observableArray.fn[fnName] instead of Array.prototype[fnName]
+                    patchArrayMethods(newValue);
                 }
-            });
+            }
+            // update obsArray contents
+            insideObsArray = true;
+            obsArray(newValue);
+            insideObsArray = false;
         }
     }
     function patchArrayMethods(array) {
@@ -660,4 +647,3 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
 //# sourceMappingURL=knockout-decorators.js.map
-
